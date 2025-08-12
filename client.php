@@ -1,3 +1,44 @@
+<?php
+session_start();
+
+// Check if user is logged in
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit();
+}
+
+// Include database connection
+require_once 'config/database.php';
+
+// Get user information
+$user_id = $_SESSION['user_id'];
+$user_email = $_SESSION['user_email'];
+$user_name = $_SESSION['user_name'];
+$user_role = $_SESSION['user_role'];
+
+// Check if user is admin
+$is_admin = ($user_role === 'Admin');
+
+// Fetch clients
+$clientsStmt = $pdo->query("SELECT id, client_name, email, phone, address, sales_person, status, date FROM clients ORDER BY date DESC");
+$clients = $clientsStmt->fetchAll();
+
+$totalClients = count($clients);
+$activeClients = 0;
+$inactiveClients = 0;
+$newThisMonth = 0;
+$vipClients = 0; // Placeholder unless you have a VIP flag in DB
+$startOfMonth = (new DateTime('first day of this month'))->format('Y-m-d');
+
+foreach ($clients as $c) {
+    $statusUpper = strtoupper((string)$c['status']);
+    if ($statusUpper === 'ACTIVE') { $activeClients++; }
+    if ($statusUpper === 'INACTIVE') { $inactiveClients++; }
+    if (!empty($c['date']) && $c['date'] >= $startOfMonth) { $newThisMonth++; }
+}
+
+function h($str) { return htmlspecialchars((string)$str, ENT_QUOTES, 'UTF-8'); }
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -572,7 +613,7 @@
                 <div class="stats-container">
                     <div class="stat-card active">
                         <div class="stat-info">
-                            <h3>847</h3>
+                            <h3><?php echo $totalClients; ?></h3>
                             <p>Total Clients</p>
                         </div>
                         <div class="stat-icon">
@@ -581,7 +622,7 @@
                     </div>
                     <div class="stat-card active">
                         <div class="stat-info">
-                            <h3>623</h3>
+                            <h3><?php echo $activeClients; ?></h3>
                             <p>Active Clients</p>
                         </div>
                         <div class="stat-icon">
@@ -590,7 +631,7 @@
                     </div>
                     <div class="stat-card inactive">
                         <div class="stat-info">
-                            <h3>124</h3>
+                            <h3><?php echo $inactiveClients; ?></h3>
                             <p>Inactive</p>
                         </div>
                         <div class="stat-icon">
@@ -599,7 +640,7 @@
                     </div>
                     <div class="stat-card new">
                         <div class="stat-info">
-                            <h3>67</h3>
+                            <h3><?php echo $newThisMonth; ?></h3>
                             <p>New This Month</p>
                         </div>
                         <div class="stat-icon">
@@ -608,7 +649,7 @@
                     </div>
                     <div class="stat-card vip">
                         <div class="stat-info">
-                            <h3>33</h3>
+                            <h3><?php echo $vipClients; ?></h3>
                             <p>VIP Clients</p>
                         </div>
                         <div class="stat-icon">
@@ -677,229 +718,59 @@
                             </tr>
                         </thead>
                         <tbody id="clientsTableBody">
+<?php if (empty($clients)): ?>
+                            <tr>
+                                <td colspan="7" style="text-align: center; padding: 40px; color: #666;">No clients found</td>
+                            </tr>
+<?php else: ?>
+<?php foreach ($clients as $client): ?>
                             <tr>
                                 <td>
                                     <div class="client-info">
-                                        <div class="client-avatar">G</div>
+                                        <div class="client-avatar"><?php echo strtoupper(substr((string)$client['client_name'], 0, 1)); ?></div>
                                         <div class="client-details">
-                                            <h4>Gopal Vyas</h4>
-                                            <p>gopalvyas795@gmail.com</p>
+                                            <h4><?php echo h($client['client_name']); ?></h4>
+                                            <p><?php echo h($client['email']); ?></p>
                                         </div>
                                     </div>
                                 </td>
                                 <td>
                                     <div class="client-details">
-                                        <p><i class="fas fa-envelope"></i> gopalvyas795@gmail.com</p>
-                                        <p><i class="fas fa-phone"></i> 75680 40856</p>
+                                        <p><i class="fas fa-envelope"></i> <?php echo h($client['email']); ?></p>
+                                        <p><i class="fas fa-phone"></i> <?php echo h($client['phone']); ?></p>
                                     </div>
                                 </td>
                                 <td>
                                     <div class="client-details">
-                                        <p>Delhi, Delhi, India</p>
-                                        <p>metro station 3E/14, near jhandewalan</p>
+                                        <p><?php echo h($client['address']); ?></p>
                                     </div>
                                 </td>
-                                <td>Felix Feria Travel</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>24 Jun 2023</td>
+                                <td><?php echo h($client['sales_person']); ?></td>
+                                <td>
+<?php $statusUpper = strtoupper((string)$client['status']); $badgeClass = ($statusUpper === 'ACTIVE') ? 'status-active' : 'status-inactive'; ?>
+                                    <span class="status-badge <?php echo $badgeClass; ?>"><?php echo h(ucfirst(strtolower($statusUpper))); ?></span>
+                                </td>
+                                <td><?php echo !empty($client['date']) ? date('d M Y', strtotime($client['date'])) : ''; ?></td>
                                 <td>
                                     <div class="action-buttons">
-                                        <a href="#" class="action-btn edit-btn" onclick="editClient(1)">
+                                        <a href="#" class="action-btn edit-btn" onclick="editClient(<?php echo (int)$client['id']; ?>)">
                                             <i class="fas fa-edit"></i> Edit
                                         </a>
-                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(1)">
+                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(<?php echo (int)$client['id']; ?>)">
                                             <i class="fas fa-archive"></i> Archive
                                         </a>
                                     </div>
                                 </td>
                             </tr>
-                            <tr>
-                                <td>
-                                    <div class="client-info">
-                                        <div class="client-avatar">S</div>
-                                        <div class="client-details">
-                                            <h4>Shalini Singh</h4>
-                                            <p>shalinee22@gmail.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p><i class="fas fa-envelope"></i> shalinee22@gmail.com</p>
-                                        <p><i class="fas fa-phone"></i> 9557017521</p>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p>Bhopal, Madhya Pradesh, India</p>
-                                        <p>Gm -19 block -b mansarovar complex bhopal madhya pardesh 462016</p>
-                                    </div>
-                                </td>
-                                <td>Felix Feria Travel</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>24 Jun 2023</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <a href="#" class="action-btn edit-btn" onclick="editClient(2)">
-                                            <i class="fas fa-edit"></i> Edit
-                                        </a>
-                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(2)">
-                                            <i class="fas fa-archive"></i> Archive
-                                        </a>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <div class="client-info">
-                                        <div class="client-avatar">C</div>
-                                        <div class="client-details">
-                                            <h4>Chintu</h4>
-                                            <p>Koletiivijay2590@gmail.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p><i class="fas fa-envelope"></i> Koletiivijay2590@gmail.com</p>
-                                        <p><i class="fas fa-phone"></i> 9508495083</p>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p>Delhi, Delhi, India</p>
-                                        <p>C-26, Anoop Nagar Pankha Road West Delhi 110059</p>
-                                    </div>
-                                </td>
-                                <td>Felix Feria Travel</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>24 Jun 2023</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <a href="#" class="action-btn edit-btn" onclick="editClient(3)">
-                                            <i class="fas fa-edit"></i> Edit
-                                        </a>
-                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(3)">
-                                            <i class="fas fa-archive"></i> Archive
-                                        </a>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <div class="client-info">
-                                        <div class="client-avatar">S</div>
-                                        <div class="client-details">
-                                            <h4>Sushma</h4>
-                                            <p>vsushma93@gmail.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p><i class="fas fa-envelope"></i> vsushma93@gmail.com</p>
-                                        <p><i class="fas fa-phone"></i> 9148094128</p>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p>Delhi, Delhi, India</p>
-                                        <p>Galaxy Stephire Noida Ext. Off 301, Jawahar Park New Delhi 110093</p>
-                                    </div>
-                                </td>
-                                <td>Felix Feria Travel</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>24 Jun 2023</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <a href="#" class="action-btn edit-btn" onclick="editClient(4)">
-                                            <i class="fas fa-edit"></i> Edit
-                                        </a>
-                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(4)">
-                                            <i class="fas fa-archive"></i> Archive
-                                        </a>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <div class="client-info">
-                                        <div class="client-avatar">M</div>
-                                        <div class="client-details">
-                                            <h4>Manjunath</h4>
-                                            <p>manju0893@gmail.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p><i class="fas fa-envelope"></i> manju0893@gmail.com</p>
-                                        <p><i class="fas fa-phone"></i> 9481783618</p>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p>Kolkata, West Bengal, India</p>
-                                        <p>8 num Lalin Sarani,2nd Floor,Wachal Molla Building,700013</p>
-                                    </div>
-                                </td>
-                                <td>Felix Feria Travel</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>24 Jun 2023</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <a href="#" class="action-btn edit-btn" onclick="editClient(5)">
-                                            <i class="fas fa-edit"></i> Edit
-                                        </a>
-                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(5)">
-                                            <i class="fas fa-archive"></i> Archive
-                                        </a>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <div class="client-info">
-                                        <div class="client-avatar">K</div>
-                                        <div class="client-details">
-                                            <h4>Kirti Agrawal</h4>
-                                            <p>gargi.kirti07@gmail.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p><i class="fas fa-envelope"></i> gargi.kirti07@gmail.com</p>
-                                        <p><i class="fas fa-phone"></i> 7699640760</p>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p>Kolkata, West Bengal, India</p>
-                                        <p>Behala Commercial Complex - 1, 620, Diamond Harbour Rd, opp. VIVEKANANDA WOMENS COLLEGE</p>
-                                    </div>
-                                </td>
-                                <td>Felix Feria Travel</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>24 Jun 2023</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <a href="#" class="action-btn edit-btn" onclick="editClient(6)">
-                                            <i class="fas fa-edit"></i> Edit
-                                        </a>
-                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(6)">
-                                            <i class="fas fa-archive"></i> Archive
-                                        </a>
-                                    </div>
-                                </td>
-                            </tr>
+<?php endforeach; ?>
+<?php endif; ?>
                         </tbody>
                     </table>
                     
                     <!-- Pagination -->
                     <div class="pagination-container">
                         <div class="pagination-info">
-                            Showing 6 Records of 847 entries
+                            Showing <?php echo $totalClients; ?> Records of <?php echo $totalClients; ?> entries
                         </div>
                         <div class="pagination">
                             <a href="#" class="page-btn">Previous</a>
@@ -916,10 +787,14 @@
 
     <script>
         // Mobile menu toggle
-        document.getElementById('menuToggle').addEventListener('click', function() {
-            const sidebar = document.getElementById('sidebar');
-            sidebar.classList.toggle('mobile-open');
-        });
+        // Guard: only attach if elements exist
+        var menuToggleEl = document.getElementById('menuToggle');
+        if (menuToggleEl) {
+            menuToggleEl.addEventListener('click', function() {
+                const sidebar = document.getElementById('sidebar');
+                if (sidebar) sidebar.classList.toggle('mobile-open');
+            });
+        }
 
         // Enhanced filter clients function
         function filterClients() {
@@ -1011,7 +886,7 @@
         function updatePaginationInfo(visibleCount, totalCount) {
             const paginationInfo = document.querySelector('.pagination-info');
             if (paginationInfo) {
-                paginationInfo.textContent = `Showing ${visibleCount} Records of ${totalCount} entries`;
+                paginationInfo.textContent = `Showing ${visibleCount} Records of <?php echo $totalClients; ?> entries`;
             }
         }
 
@@ -1098,7 +973,7 @@
 
         // Add click handlers to navigation
         document.querySelector('.logo').addEventListener('click', function() {
-            window.location.href = 'dashboard.html';
+            window.location.href = 'dashboard.php';
         });
 
         // Enhanced pagination functionality
