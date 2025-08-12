@@ -1,5 +1,5 @@
 <?php
-// Enable error reporting for debugging
+// Enable error reporting for debugging (remove in production)
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
@@ -103,7 +103,7 @@ try {
         COUNT(*) as total_clients,
         SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) as active_clients,
         SUM(CASE WHEN status = 'INACTIVE' THEN 1 ELSE 0 END) as inactive_clients,
-        SUM(CASE WHEN DATE(date) >= DATE(DATE_SUB(NOW(), INTERVAL 1 MONTH)) THEN 1 ELSE 0 END) as new_this_month
+        SUM(CASE WHEN date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH) THEN 1 ELSE 0 END) as new_this_month
     FROM clients";
     $stats_stmt = $pdo->prepare($stats_query);
     $stats_stmt->execute();
@@ -118,6 +118,13 @@ try {
             'new_this_month' => 0
         ];
     }
+    
+    // Convert NULL values to 0
+    $stats['total_clients'] = $stats['total_clients'] ?? 0;
+    $stats['active_clients'] = $stats['active_clients'] ?? 0;
+    $stats['inactive_clients'] = $stats['inactive_clients'] ?? 0;
+    $stats['new_this_month'] = $stats['new_this_month'] ?? 0;
+    
 } catch (PDOException $e) {
     // If there's an error with the stats query, use default values
     $stats = [
@@ -696,8 +703,8 @@ try {
             <div class="header-actions">
                 <div class="notification has-alert">🔔</div>
                 <div class="user-profile">
-                    <div class="avatar">TC</div>
-                    <span>Tripenure CRM</span>
+                    <div class="avatar"><?php echo strtoupper(substr($user_name, 0, 2)); ?></div>
+                    <span><?php echo htmlspecialchars($user_name); ?></span>
                     <span>▼</span>
                 </div>
             </div>
@@ -749,8 +756,8 @@ try {
                     </div>
                     <div class="stat-card vip">
                         <div class="stat-info">
-                            <h3><?php echo number_format($stats['total_clients']); ?></h3>
-                            <p>VIP Clients</p>
+                            <h3><?php echo number_format($stats['active_clients']); ?></h3>
+                            <p>Active Today</p>
                         </div>
                         <div class="stat-icon">
                             <i class="fas fa-crown"></i>
@@ -866,7 +873,7 @@ try {
                                                 <?php echo htmlspecialchars($client['status']); ?>
                                             </span>
                                         </td>
-                                        <td><?php echo date('d M Y', strtotime($client['date'])); ?></td>
+                                        <td><?php echo $client['date'] ? date('d M Y', strtotime($client['date'])) : 'N/A'; ?></td>
                                         <td>
                                             <div class="action-buttons">
                                                 <a href="edit_client.php?id=<?php echo $client['id']; ?>" class="action-btn edit-btn">
