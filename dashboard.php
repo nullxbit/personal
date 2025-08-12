@@ -689,7 +689,7 @@ $is_admin = ($user_role === 'Admin');
             </a>
             <a href="client.php" class="nav-item">
                 <span>👥</span>
-                <span>Clients</span>
+                <span>Clients (Archive)</span>
             </a>
             <a href="#" class="nav-item">
                 <span>⚙️</span>

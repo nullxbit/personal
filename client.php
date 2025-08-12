@@ -88,14 +88,15 @@ $stats_query = "SELECT
     COUNT(*) as total_clients,
     SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) as active_clients,
     SUM(CASE WHEN status = 'INACTIVE' THEN 1 ELSE 0 END) as inactive_clients,
+    SUM(CASE WHEN status = 'ARCHIVED' THEN 1 ELSE 0 END) as archived_clients,
     SUM(CASE WHEN date >= DATE_SUB(NOW(), INTERVAL 1 MONTH) THEN 1 ELSE 0 END) as new_this_month
 FROM clients";
 $stats_stmt = $pdo->prepare($stats_query);
 $stats_stmt->execute();
 $stats = $stats_stmt->fetch();
 
-// Get unique sales persons for filter dropdown
-$sales_persons_query = "SELECT DISTINCT sales_person FROM clients WHERE sales_person IS NOT NULL AND sales_person != '' ORDER BY sales_person";
+// Get sales persons (agents) from users table
+$sales_persons_query = "SELECT DISTINCT CONCAT(first_name, ' ', last_name) AS sales_person FROM users WHERE role = 'User' ORDER BY first_name, last_name";
 $sales_persons_stmt = $pdo->prepare($sales_persons_query);
 $sales_persons_stmt->execute();
 $sales_persons = $sales_persons_stmt->fetchAll();
@@ -298,7 +299,7 @@ $sales_persons = $sales_persons_stmt->fetchAll();
         .stat-card.active { border-left-color: #1cc88a; }
         .stat-card.inactive { border-left-color: #e74a3b; }
         .stat-card.new { border-left-color: #f6c23e; }
-        .stat-card.vip { border-left-color: #9b59b6; }
+        .stat-card.archive { border-left-color: #9b59b6; }
 
         .stat-info h3 {
             font-size: 24px;
@@ -479,6 +480,11 @@ $sales_persons = $sales_persons_stmt->fetchAll();
             color: #e74a3b;
         }
 
+        .status-archived {
+            background: #e2e3e5;
+            color: #6c757d;
+        }
+        
         .action-buttons {
             display: flex;
             gap: 10px;
@@ -709,13 +715,13 @@ $sales_persons = $sales_persons_stmt->fetchAll();
                             <i class="fas fa-user-plus"></i>
                         </div>
                     </div>
-                    <div class="stat-card vip">
+                    <div class="stat-card archive">
                         <div class="stat-info">
-                            <h3><?php echo number_format($stats['total_clients']); ?></h3>
-                            <p>VIP Clients</p>
+                            <h3><?php echo number_format($stats['archived_clients'] ?? 0); ?></h3>
+                            <p>Archived</p>
                         </div>
                         <div class="stat-icon">
-                            <i class="fas fa-crown"></i>
+                            <i class="fas fa-archive"></i>
                         </div>
                     </div>
                 </div>
@@ -737,12 +743,13 @@ $sales_persons = $sales_persons_stmt->fetchAll();
                                 <input type="text" name="search" placeholder="Search client..." id="clientSearch" value="<?php echo htmlspecialchars($search_term); ?>">
                             </div>
                             <div class="filter-group">
-                                <label>Status</label>
-                                <select name="status" id="statusFilter">
-                                    <option value="">All Status</option>
-                                    <option value="ACTIVE" <?php echo ($status_filter === 'ACTIVE') ? 'selected' : ''; ?>>Active</option>
-                                    <option value="INACTIVE" <?php echo ($status_filter === 'INACTIVE') ? 'selected' : ''; ?>>Inactive</option>
-                                </select>
+                                                                    <label>Status</label>
+                                    <select name="status" id="statusFilter">
+                                        <option value="">All Status</option>
+                                        <option value="ACTIVE" <?php echo ($status_filter === 'ACTIVE') ? 'selected' : ''; ?>>Active</option>
+                                        <option value="INACTIVE" <?php echo ($status_filter === 'INACTIVE') ? 'selected' : ''; ?>>Inactive</option>
+                                        <option value="ARCHIVED" <?php echo ($status_filter === 'ARCHIVED') ? 'selected' : ''; ?>>Archived</option>
+                                    </select>
                             </div>
                             <div class="filter-group">
                                 <label>Sales Person</label>
@@ -824,7 +831,12 @@ $sales_persons = $sales_persons_stmt->fetchAll();
                                         </td>
                                         <td><?php echo htmlspecialchars($client['sales_person'] ?? 'Not Assigned'); ?></td>
                                         <td>
-                                            <span class="status-badge <?php echo ($client['status'] === 'ACTIVE') ? 'status-active' : 'status-inactive'; ?>">
+                                            <?php
+                                                $badgeClass = 'status-inactive';
+                                                if ($client['status'] === 'ACTIVE') { $badgeClass = 'status-active'; }
+                                                elseif ($client['status'] === 'ARCHIVED') { $badgeClass = 'status-archived'; }
+                                            ?>
+                                            <span class="status-badge <?php echo $badgeClass; ?>">
                                                 <?php echo htmlspecialchars($client['status']); ?>
                                             </span>
                                         </td>

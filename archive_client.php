@@ -14,10 +14,12 @@ require_once 'config/database.php';
 // Check if it's a POST request
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
+    header('Content-Type: application/json');
     echo json_encode(['success' => false, 'message' => 'Method not allowed']);
     exit();
 }
 
+header('Content-Type: application/json');
 // Get client ID from POST data
 $client_id = isset($_POST['client_id']) ? (int)$_POST['client_id'] : 0;
 
@@ -27,8 +29,8 @@ if ($client_id <= 0) {
 }
 
 try {
-    // Update client status to INACTIVE (or you could create an archived status)
-    $query = "UPDATE clients SET status = 'INACTIVE' WHERE id = ?";
+    // Update client status to ARCHIVED
+    $query = "UPDATE clients SET status = 'ARCHIVED' WHERE id = ?";
     $stmt = $pdo->prepare($query);
     $result = $stmt->execute([$client_id]);
     
