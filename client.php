@@ -1,4 +1,8 @@
 <?php
+// Enable error reporting for debugging
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 session_start();
 
 // Check if user is logged in
@@ -68,37 +72,71 @@ if (!empty($where_conditions)) {
 }
 
 // Get total count for pagination
-$count_query = "SELECT COUNT(*) as total FROM clients $where_clause";
-$count_stmt = $pdo->prepare($count_query);
-$count_stmt->execute($params);
-$total_records = $count_stmt->fetch()['total'];
-$total_pages = ceil($total_records / $records_per_page);
+try {
+    $count_query = "SELECT COUNT(*) as total FROM clients $where_clause";
+    $count_stmt = $pdo->prepare($count_query);
+    $count_stmt->execute($params);
+    $total_records = $count_stmt->fetch()['total'];
+    $total_pages = ceil($total_records / $records_per_page);
+} catch (PDOException $e) {
+    $total_records = 0;
+    $total_pages = 1;
+}
 
 // Get clients data with pagination
-$query = "SELECT * FROM clients $where_clause ORDER BY date DESC LIMIT ? OFFSET ?";
-$params[] = $records_per_page;
-$params[] = $offset;
+try {
+    $query = "SELECT * FROM clients $where_clause ORDER BY date DESC LIMIT ? OFFSET ?";
+    $pagination_params = $params; // Copy params array for pagination query
+    $pagination_params[] = $records_per_page;
+    $pagination_params[] = $offset;
 
-$stmt = $pdo->prepare($query);
-$stmt->execute($params);
-$clients = $stmt->fetchAll();
+    $stmt = $pdo->prepare($query);
+    $stmt->execute($pagination_params);
+    $clients = $stmt->fetchAll();
+} catch (PDOException $e) {
+    $clients = [];
+}
 
 // Get statistics
-$stats_query = "SELECT 
-    COUNT(*) as total_clients,
-    SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) as active_clients,
-    SUM(CASE WHEN status = 'INACTIVE' THEN 1 ELSE 0 END) as inactive_clients,
-    SUM(CASE WHEN date >= DATE_SUB(NOW(), INTERVAL 1 MONTH) THEN 1 ELSE 0 END) as new_this_month
-FROM clients";
-$stats_stmt = $pdo->prepare($stats_query);
-$stats_stmt->execute();
-$stats = $stats_stmt->fetch();
+try {
+    $stats_query = "SELECT 
+        COUNT(*) as total_clients,
+        SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) as active_clients,
+        SUM(CASE WHEN status = 'INACTIVE' THEN 1 ELSE 0 END) as inactive_clients,
+        SUM(CASE WHEN DATE(date) >= DATE(DATE_SUB(NOW(), INTERVAL 1 MONTH)) THEN 1 ELSE 0 END) as new_this_month
+    FROM clients";
+    $stats_stmt = $pdo->prepare($stats_query);
+    $stats_stmt->execute();
+    $stats = $stats_stmt->fetch();
+    
+    // Ensure we have default values if stats is empty
+    if (!$stats) {
+        $stats = [
+            'total_clients' => 0,
+            'active_clients' => 0,
+            'inactive_clients' => 0,
+            'new_this_month' => 0
+        ];
+    }
+} catch (PDOException $e) {
+    // If there's an error with the stats query, use default values
+    $stats = [
+        'total_clients' => 0,
+        'active_clients' => 0,
+        'inactive_clients' => 0,
+        'new_this_month' => 0
+    ];
+}
 
 // Get unique sales persons for filter dropdown
-$sales_persons_query = "SELECT DISTINCT sales_person FROM clients WHERE sales_person IS NOT NULL AND sales_person != '' ORDER BY sales_person";
-$sales_persons_stmt = $pdo->prepare($sales_persons_query);
-$sales_persons_stmt->execute();
-$sales_persons = $sales_persons_stmt->fetchAll();
+try {
+    $sales_persons_query = "SELECT DISTINCT sales_person FROM clients WHERE sales_person IS NOT NULL AND sales_person != '' ORDER BY sales_person";
+    $sales_persons_stmt = $pdo->prepare($sales_persons_query);
+    $sales_persons_stmt->execute();
+    $sales_persons = $sales_persons_stmt->fetchAll();
+} catch (PDOException $e) {
+    $sales_persons = [];
+}
 
 ?>
 <!DOCTYPE html>
