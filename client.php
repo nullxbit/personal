@@ -1,3 +1,106 @@
+<?php
+session_start();
+
+// Check if user is logged in
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit();
+}
+
+// Include database connection
+require_once 'config/database.php';
+
+// Get user information
+$user_id = $_SESSION['user_id'];
+$user_email = $_SESSION['user_email'];
+$user_name = $_SESSION['user_name'];
+$user_role = $_SESSION['user_role'];
+
+// Check if user is admin
+$is_admin = ($user_role === 'Admin');
+
+// Pagination settings
+$records_per_page = 25;
+$current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$offset = ($current_page - 1) * $records_per_page;
+
+// Filter parameters
+$search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
+$status_filter = isset($_GET['status']) ? $_GET['status'] : '';
+$sales_person_filter = isset($_GET['sales_person']) ? $_GET['sales_person'] : '';
+$from_date = isset($_GET['from_date']) ? $_GET['from_date'] : '';
+$to_date = isset($_GET['to_date']) ? $_GET['to_date'] : '';
+
+// Build the WHERE clause for filtering
+$where_conditions = [];
+$params = [];
+
+if (!empty($search_term)) {
+    $where_conditions[] = "(client_name LIKE ? OR email LIKE ? OR phone LIKE ?)";
+    $params[] = "%$search_term%";
+    $params[] = "%$search_term%";
+    $params[] = "%$search_term%";
+}
+
+if (!empty($status_filter)) {
+    $where_conditions[] = "status = ?";
+    $params[] = $status_filter;
+}
+
+if (!empty($sales_person_filter)) {
+    $where_conditions[] = "sales_person = ?";
+    $params[] = $sales_person_filter;
+}
+
+if (!empty($from_date)) {
+    $where_conditions[] = "date >= ?";
+    $params[] = $from_date;
+}
+
+if (!empty($to_date)) {
+    $where_conditions[] = "date <= ?";
+    $params[] = $to_date;
+}
+
+$where_clause = '';
+if (!empty($where_conditions)) {
+    $where_clause = 'WHERE ' . implode(' AND ', $where_conditions);
+}
+
+// Get total count for pagination
+$count_query = "SELECT COUNT(*) as total FROM clients $where_clause";
+$count_stmt = $pdo->prepare($count_query);
+$count_stmt->execute($params);
+$total_records = $count_stmt->fetch()['total'];
+$total_pages = ceil($total_records / $records_per_page);
+
+// Get clients data with pagination
+$query = "SELECT * FROM clients $where_clause ORDER BY date DESC LIMIT ? OFFSET ?";
+$params[] = $records_per_page;
+$params[] = $offset;
+
+$stmt = $pdo->prepare($query);
+$stmt->execute($params);
+$clients = $stmt->fetchAll();
+
+// Get statistics
+$stats_query = "SELECT 
+    COUNT(*) as total_clients,
+    SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END) as active_clients,
+    SUM(CASE WHEN status = 'INACTIVE' THEN 1 ELSE 0 END) as inactive_clients,
+    SUM(CASE WHEN date >= DATE_SUB(NOW(), INTERVAL 1 MONTH) THEN 1 ELSE 0 END) as new_this_month
+FROM clients";
+$stats_stmt = $pdo->prepare($stats_query);
+$stats_stmt->execute();
+$stats = $stats_stmt->fetch();
+
+// Get unique sales persons for filter dropdown
+$sales_persons_query = "SELECT DISTINCT sales_person FROM clients WHERE sales_person IS NOT NULL AND sales_person != '' ORDER BY sales_person";
+$sales_persons_stmt = $pdo->prepare($sales_persons_query);
+$sales_persons_stmt->execute();
+$sales_persons = $sales_persons_stmt->fetchAll();
+
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -572,7 +675,7 @@
                 <div class="stats-container">
                     <div class="stat-card active">
                         <div class="stat-info">
-                            <h3>847</h3>
+                            <h3><?php echo number_format($stats['total_clients']); ?></h3>
                             <p>Total Clients</p>
                         </div>
                         <div class="stat-icon">
@@ -581,7 +684,7 @@
                     </div>
                     <div class="stat-card active">
                         <div class="stat-info">
-                            <h3>623</h3>
+                            <h3><?php echo number_format($stats['active_clients']); ?></h3>
                             <p>Active Clients</p>
                         </div>
                         <div class="stat-icon">
@@ -590,7 +693,7 @@
                     </div>
                     <div class="stat-card inactive">
                         <div class="stat-info">
-                            <h3>124</h3>
+                            <h3><?php echo number_format($stats['inactive_clients']); ?></h3>
                             <p>Inactive</p>
                         </div>
                         <div class="stat-icon">
@@ -599,7 +702,7 @@
                     </div>
                     <div class="stat-card new">
                         <div class="stat-info">
-                            <h3>67</h3>
+                            <h3><?php echo number_format($stats['new_this_month']); ?></h3>
                             <p>New This Month</p>
                         </div>
                         <div class="stat-icon">
@@ -608,7 +711,7 @@
                     </div>
                     <div class="stat-card vip">
                         <div class="stat-info">
-                            <h3>33</h3>
+                            <h3><?php echo number_format($stats['total_clients']); ?></h3>
                             <p>VIP Clients</p>
                         </div>
                         <div class="stat-icon">
@@ -619,41 +722,46 @@
 
                 <!-- Filters Section -->
                 <div class="filters-section">
-                    <div class="filters-row">
-                        <div class="filter-group">
-                            <label>From Date</label>
-                            <input type="date" id="fromDate">
+                    <form method="GET" action="client.php">
+                        <div class="filters-row">
+                            <div class="filter-group">
+                                <label>From Date</label>
+                                <input type="date" name="from_date" id="fromDate" value="<?php echo htmlspecialchars($from_date); ?>">
+                            </div>
+                            <div class="filter-group">
+                                <label>To Date</label>
+                                <input type="date" name="to_date" id="toDate" value="<?php echo htmlspecialchars($to_date); ?>">
+                            </div>
+                            <div class="filter-group">
+                                <label>Client Name/Email</label>
+                                <input type="text" name="search" placeholder="Search client..." id="clientSearch" value="<?php echo htmlspecialchars($search_term); ?>">
+                            </div>
+                            <div class="filter-group">
+                                <label>Status</label>
+                                <select name="status" id="statusFilter">
+                                    <option value="">All Status</option>
+                                    <option value="ACTIVE" <?php echo ($status_filter === 'ACTIVE') ? 'selected' : ''; ?>>Active</option>
+                                    <option value="INACTIVE" <?php echo ($status_filter === 'INACTIVE') ? 'selected' : ''; ?>>Inactive</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label>Sales Person</label>
+                                <select name="sales_person" id="salesPersonFilter">
+                                    <option value="">All Sales Person</option>
+                                    <?php foreach ($sales_persons as $person): ?>
+                                        <option value="<?php echo htmlspecialchars($person['sales_person']); ?>" 
+                                                <?php echo ($sales_person_filter === $person['sales_person']) ? 'selected' : ''; ?>>
+                                            <?php echo htmlspecialchars($person['sales_person']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <button type="submit" class="search-btn">
+                                <i class="fas fa-search"></i>
+                                Search
+                            </button>
                         </div>
-                        <div class="filter-group">
-                            <label>To Date</label>
-                            <input type="date" id="toDate">
-                        </div>
-                        <div class="filter-group">
-                            <label>Client Name/Email</label>
-                            <input type="text" placeholder="Search client..." id="clientSearch">
-                        </div>
-                        <div class="filter-group">
-                            <label>Status</label>
-                            <select id="statusFilter">
-                                <option value="">All Status</option>
-                                <option value="active">Active</option>
-                                <option value="inactive">Inactive</option>
-                            </select>
-                        </div>
-                        <div class="filter-group">
-                            <label>Sales Person</label>
-                            <select id="salesPersonFilter">
-                                <option value="">All Sales Person</option>
-                                <option value="felix">Felix Feria Travel</option>
-                                <option value="john">John Smith</option>
-                                <option value="sarah">Sarah Wilson</option>
-                            </select>
-                        </div>
-                        <button class="search-btn" onclick="filterClients()">
-                            <i class="fas fa-search"></i>
-                            Search
-                        </button>
-                    </div>
+                    </form>
                 </div>
 
                 <!-- Add Client Button -->
@@ -677,236 +785,91 @@
                             </tr>
                         </thead>
                         <tbody id="clientsTableBody">
-                            <tr>
-                                <td>
-                                    <div class="client-info">
-                                        <div class="client-avatar">G</div>
-                                        <div class="client-details">
-                                            <h4>Gopal Vyas</h4>
-                                            <p>gopalvyas795@gmail.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p><i class="fas fa-envelope"></i> gopalvyas795@gmail.com</p>
-                                        <p><i class="fas fa-phone"></i> 75680 40856</p>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p>Delhi, Delhi, India</p>
-                                        <p>metro station 3E/14, near jhandewalan</p>
-                                    </div>
-                                </td>
-                                <td>Felix Feria Travel</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>24 Jun 2023</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <a href="#" class="action-btn edit-btn" onclick="editClient(1)">
-                                            <i class="fas fa-edit"></i> Edit
-                                        </a>
-                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(1)">
-                                            <i class="fas fa-archive"></i> Archive
-                                        </a>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <div class="client-info">
-                                        <div class="client-avatar">S</div>
-                                        <div class="client-details">
-                                            <h4>Shalini Singh</h4>
-                                            <p>shalinee22@gmail.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p><i class="fas fa-envelope"></i> shalinee22@gmail.com</p>
-                                        <p><i class="fas fa-phone"></i> 9557017521</p>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p>Bhopal, Madhya Pradesh, India</p>
-                                        <p>Gm -19 block -b mansarovar complex bhopal madhya pardesh 462016</p>
-                                    </div>
-                                </td>
-                                <td>Felix Feria Travel</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>24 Jun 2023</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <a href="#" class="action-btn edit-btn" onclick="editClient(2)">
-                                            <i class="fas fa-edit"></i> Edit
-                                        </a>
-                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(2)">
-                                            <i class="fas fa-archive"></i> Archive
-                                        </a>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <div class="client-info">
-                                        <div class="client-avatar">C</div>
-                                        <div class="client-details">
-                                            <h4>Chintu</h4>
-                                            <p>Koletiivijay2590@gmail.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p><i class="fas fa-envelope"></i> Koletiivijay2590@gmail.com</p>
-                                        <p><i class="fas fa-phone"></i> 9508495083</p>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p>Delhi, Delhi, India</p>
-                                        <p>C-26, Anoop Nagar Pankha Road West Delhi 110059</p>
-                                    </div>
-                                </td>
-                                <td>Felix Feria Travel</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>24 Jun 2023</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <a href="#" class="action-btn edit-btn" onclick="editClient(3)">
-                                            <i class="fas fa-edit"></i> Edit
-                                        </a>
-                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(3)">
-                                            <i class="fas fa-archive"></i> Archive
-                                        </a>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <div class="client-info">
-                                        <div class="client-avatar">S</div>
-                                        <div class="client-details">
-                                            <h4>Sushma</h4>
-                                            <p>vsushma93@gmail.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p><i class="fas fa-envelope"></i> vsushma93@gmail.com</p>
-                                        <p><i class="fas fa-phone"></i> 9148094128</p>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p>Delhi, Delhi, India</p>
-                                        <p>Galaxy Stephire Noida Ext. Off 301, Jawahar Park New Delhi 110093</p>
-                                    </div>
-                                </td>
-                                <td>Felix Feria Travel</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>24 Jun 2023</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <a href="#" class="action-btn edit-btn" onclick="editClient(4)">
-                                            <i class="fas fa-edit"></i> Edit
-                                        </a>
-                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(4)">
-                                            <i class="fas fa-archive"></i> Archive
-                                        </a>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <div class="client-info">
-                                        <div class="client-avatar">M</div>
-                                        <div class="client-details">
-                                            <h4>Manjunath</h4>
-                                            <p>manju0893@gmail.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p><i class="fas fa-envelope"></i> manju0893@gmail.com</p>
-                                        <p><i class="fas fa-phone"></i> 9481783618</p>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p>Kolkata, West Bengal, India</p>
-                                        <p>8 num Lalin Sarani,2nd Floor,Wachal Molla Building,700013</p>
-                                    </div>
-                                </td>
-                                <td>Felix Feria Travel</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>24 Jun 2023</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <a href="#" class="action-btn edit-btn" onclick="editClient(5)">
-                                            <i class="fas fa-edit"></i> Edit
-                                        </a>
-                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(5)">
-                                            <i class="fas fa-archive"></i> Archive
-                                        </a>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>
-                                    <div class="client-info">
-                                        <div class="client-avatar">K</div>
-                                        <div class="client-details">
-                                            <h4>Kirti Agrawal</h4>
-                                            <p>gargi.kirti07@gmail.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p><i class="fas fa-envelope"></i> gargi.kirti07@gmail.com</p>
-                                        <p><i class="fas fa-phone"></i> 7699640760</p>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="client-details">
-                                        <p>Kolkata, West Bengal, India</p>
-                                        <p>Behala Commercial Complex - 1, 620, Diamond Harbour Rd, opp. VIVEKANANDA WOMENS COLLEGE</p>
-                                    </div>
-                                </td>
-                                <td>Felix Feria Travel</td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td>24 Jun 2023</td>
-                                <td>
-                                    <div class="action-buttons">
-                                        <a href="#" class="action-btn edit-btn" onclick="editClient(6)">
-                                            <i class="fas fa-edit"></i> Edit
-                                        </a>
-                                        <a href="#" class="action-btn archive-btn" onclick="archiveClient(6)">
-                                            <i class="fas fa-archive"></i> Archive
-                                        </a>
-                                    </div>
-                                </td>
-                            </tr>
+                            <?php if (empty($clients)): ?>
+                                <tr>
+                                    <td colspan="7" style="text-align: center; padding: 40px; color: #666;">
+                                        <i class="fas fa-search" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
+                                        <p>No clients found</p>
+                                        <?php if (!empty($search_term) || !empty($status_filter) || !empty($sales_person_filter) || !empty($from_date) || !empty($to_date)): ?>
+                                            <a href="client.php" style="margin-top: 10px; padding: 8px 16px; background: #4e73df; color: white; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block;">
+                                                Clear All Filters
+                                            </a>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach ($clients as $client): ?>
+                                    <tr>
+                                        <td>
+                                            <div class="client-info">
+                                                <div class="client-avatar">
+                                                    <?php echo strtoupper(substr($client['client_name'], 0, 1)); ?>
+                                                </div>
+                                                <div class="client-details">
+                                                    <h4><?php echo htmlspecialchars($client['client_name']); ?></h4>
+                                                    <p><?php echo htmlspecialchars($client['email']); ?></p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="client-details">
+                                                <p><i class="fas fa-envelope"></i> <?php echo htmlspecialchars($client['email']); ?></p>
+                                                <p><i class="fas fa-phone"></i> <?php echo htmlspecialchars($client['phone']); ?></p>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="client-details">
+                                                <p><?php echo htmlspecialchars($client['address']); ?></p>
+                                            </div>
+                                        </td>
+                                        <td><?php echo htmlspecialchars($client['sales_person'] ?? 'Not Assigned'); ?></td>
+                                        <td>
+                                            <span class="status-badge <?php echo ($client['status'] === 'ACTIVE') ? 'status-active' : 'status-inactive'; ?>">
+                                                <?php echo htmlspecialchars($client['status']); ?>
+                                            </span>
+                                        </td>
+                                        <td><?php echo date('d M Y', strtotime($client['date'])); ?></td>
+                                        <td>
+                                            <div class="action-buttons">
+                                                <a href="edit_client.php?id=<?php echo $client['id']; ?>" class="action-btn edit-btn">
+                                                    <i class="fas fa-edit"></i> Edit
+                                                </a>
+                                                <a href="#" class="action-btn archive-btn" onclick="archiveClient(<?php echo $client['id']; ?>)">
+                                                    <i class="fas fa-archive"></i> Archive
+                                                </a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                     
                     <!-- Pagination -->
                     <div class="pagination-container">
                         <div class="pagination-info">
-                            Showing 6 Records of 847 entries
+                            Showing <?php echo count($clients); ?> Records of <?php echo number_format($total_records); ?> entries
                         </div>
                         <div class="pagination">
-                            <a href="#" class="page-btn">Previous</a>
-                            <a href="#" class="page-btn active">1</a>
-                            <a href="#" class="page-btn">2</a>
-                            <a href="#" class="page-btn">3</a>
-                            <a href="#" class="page-btn">Next</a>
+                            <?php if ($current_page > 1): ?>
+                                <a href="?page=<?php echo ($current_page - 1); ?>&search=<?php echo urlencode($search_term); ?>&status=<?php echo urlencode($status_filter); ?>&sales_person=<?php echo urlencode($sales_person_filter); ?>&from_date=<?php echo urlencode($from_date); ?>&to_date=<?php echo urlencode($to_date); ?>" class="page-btn">Previous</a>
+                            <?php endif; ?>
+                            
+                            <?php
+                            $start_page = max(1, $current_page - 2);
+                            $end_page = min($total_pages, $current_page + 2);
+                            
+                            for ($i = $start_page; $i <= $end_page; $i++):
+                            ?>
+                                <a href="?page=<?php echo $i; ?>&search=<?php echo urlencode($search_term); ?>&status=<?php echo urlencode($status_filter); ?>&sales_person=<?php echo urlencode($sales_person_filter); ?>&from_date=<?php echo urlencode($from_date); ?>&to_date=<?php echo urlencode($to_date); ?>" 
+                                   class="page-btn <?php echo ($i == $current_page) ? 'active' : ''; ?>">
+                                    <?php echo $i; ?>
+                                </a>
+                            <?php endfor; ?>
+                            
+                            <?php if ($current_page < $total_pages): ?>
+                                <a href="?page=<?php echo ($current_page + 1); ?>&search=<?php echo urlencode($search_term); ?>&status=<?php echo urlencode($status_filter); ?>&sales_person=<?php echo urlencode($sales_person_filter); ?>&from_date=<?php echo urlencode($from_date); ?>&to_date=<?php echo urlencode($to_date); ?>" class="page-btn">Next</a>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -915,278 +878,88 @@
     </div>
 
     <script>
-        // Mobile menu toggle
-        document.getElementById('menuToggle').addEventListener('click', function() {
-            const sidebar = document.getElementById('sidebar');
-            sidebar.classList.toggle('mobile-open');
-        });
-
-        // Enhanced filter clients function
-        function filterClients() {
-            const fromDate = document.getElementById('fromDate').value;
-            const toDate = document.getElementById('toDate').value;
-            const clientSearch = document.getElementById('clientSearch').value.toLowerCase();
-            const statusFilter = document.getElementById('statusFilter').value;
-            const salesPersonFilter = document.getElementById('salesPersonFilter').value;
-
-            const tableBody = document.getElementById('clientsTableBody');
-            const rows = tableBody.querySelectorAll('tr');
-
-            let visibleCount = 0;
-            const totalCount = rows.length;
-
-            rows.forEach(row => {
-                const clientName = row.querySelector('.client-details h4').textContent.toLowerCase();
-                const clientEmail = row.querySelector('.client-details p').textContent.toLowerCase();
-                const status = row.querySelector('.status-badge').textContent.toLowerCase();
-                const salesPerson = row.cells[3].textContent.toLowerCase();
-                const dateCell = row.cells[5].textContent; // Date column
-
-                let showRow = true;
-
-                // Filter by search term (name or email)
-                if (clientSearch && !clientName.includes(clientSearch) && !clientEmail.includes(clientSearch)) {
-                    showRow = false;
-                }
-
-                // Filter by status
-                if (statusFilter && !status.includes(statusFilter)) {
-                    showRow = false;
-                }
-
-                // Filter by sales person
-                if (salesPersonFilter && !salesPerson.includes(salesPersonFilter)) {
-                    showRow = false;
-                }
-
-                // Filter by date range
-                if (fromDate || toDate) {
-                    const rowDate = parseDate(dateCell);
-                    if (fromDate && rowDate < new Date(fromDate)) {
-                        showRow = false;
-                    }
-                    if (toDate && rowDate > new Date(toDate)) {
-                        showRow = false;
-                    }
-                }
-
-                row.style.display = showRow ? '' : 'none';
-                if (showRow) visibleCount++;
-            });
-
-            // Update pagination info
-            updatePaginationInfo(visibleCount, totalCount);
-            
-            // Show/hide no results message
-            showNoResultsMessage(visibleCount);
-        }
-
-        // Parse date string to Date object
-        function parseDate(dateString) {
-            // Handle different date formats
-            const date = new Date(dateString);
-            if (isNaN(date.getTime())) {
-                // Try parsing different formats
-                const parts = dateString.split(' ');
-                if (parts.length >= 3) {
-                    const day = parseInt(parts[0]);
-                    const month = getMonthNumber(parts[1]);
-                    const year = parseInt(parts[2]);
-                    return new Date(year, month, day);
-                }
-            }
-            return date;
-        }
-
-        // Get month number from month name
-        function getMonthNumber(monthName) {
-            const months = {
-                'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'may': 4, 'jun': 5,
-                'jul': 6, 'aug': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dec': 11
-            };
-            return months[monthName.toLowerCase()] || 0;
-        }
-
-        // Update pagination information
-        function updatePaginationInfo(visibleCount, totalCount) {
-            const paginationInfo = document.querySelector('.pagination-info');
-            if (paginationInfo) {
-                paginationInfo.textContent = `Showing ${visibleCount} Records of ${totalCount} entries`;
-            }
-        }
-
-        // Show/hide no results message
-        function showNoResultsMessage(visibleCount) {
-            let noResultsMsg = document.getElementById('noResultsMessage');
-            
-            if (visibleCount === 0) {
-                if (!noResultsMsg) {
-                    noResultsMsg = document.createElement('tr');
-                    noResultsMsg.id = 'noResultsMessage';
-                    noResultsMsg.innerHTML = `
-                        <td colspan="7" style="text-align: center; padding: 40px; color: #666;">
-                            <i class="fas fa-search" style="font-size: 24px; margin-bottom: 10px; display: block;"></i>
-                            <p>No clients found matching your filters</p>
-                            <button onclick="clearAllFilters()" style="margin-top: 10px; padding: 8px 16px; background: #4e73df; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                                Clear All Filters
-                            </button>
-                        </td>
-                    `;
-                    document.getElementById('clientsTableBody').appendChild(noResultsMsg);
-                }
-            } else if (noResultsMsg) {
-                noResultsMsg.remove();
-            }
-        }
-
-        // Clear all filters
-        function clearAllFilters() {
-            document.getElementById('fromDate').value = '';
-            document.getElementById('toDate').value = '';
-            document.getElementById('clientSearch').value = '';
-            document.getElementById('statusFilter').value = '';
-            document.getElementById('salesPersonFilter').value = '';
-            
-            // Reset to default dates
-            const today = new Date().toISOString().split('T')[0];
-            const thirtyDaysAgo = new Date();
-            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-            
-            document.getElementById('toDate').value = today;
-            document.getElementById('fromDate').value = thirtyDaysAgo.toISOString().split('T')[0];
-            
-            // Show all rows
-            filterClients();
-        }
-
         // Add new client function
         function addNewClient() {
-            alert('Add New Client functionality would open a form modal or redirect to a new page');
-            // In a real application, this would open a modal or redirect to a form page
-        }
-
-        // Enhanced real-time search with debouncing
-        let searchTimeout;
-        document.getElementById('clientSearch').addEventListener('input', function() {
-            clearTimeout(searchTimeout);
-            searchTimeout = setTimeout(() => {
-                filterClients();
-            }, 300); // Wait 300ms after user stops typing
-        });
-
-        // Add change event listeners to all filter inputs
-        document.getElementById('fromDate').addEventListener('change', filterClients);
-        document.getElementById('toDate').addEventListener('change', filterClients);
-        document.getElementById('statusFilter').addEventListener('change', filterClients);
-        document.getElementById('salesPersonFilter').addEventListener('change', filterClients);
-
-        // Edit client function
-        function editClient(clientId) {
-            alert(`Edit client functionality for ID: ${clientId}`);
-            // In a real application, this would open an edit form
+            window.location.href = 'add_client.php';
         }
 
         // Archive client function
         function archiveClient(clientId) {
             if (confirm('Are you sure you want to archive this client?')) {
-                alert(`Client ${clientId} archived successfully`);
-                // In a real application, this would make an API call to archive the client
-                // After successful archive, refresh the table
-                // filterClients();
+                // Make AJAX request to archive the client
+                fetch('archive_client.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: 'client_id=' + clientId
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Client archived successfully');
+                        // Reload the page to refresh the data
+                        window.location.reload();
+                    } else {
+                        alert('Error archiving client: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error archiving client');
+                });
             }
         }
-
-        // Add click handlers to navigation
-        document.querySelector('.logo').addEventListener('click', function() {
-            window.location.href = 'dashboard.html';
-        });
-
-        // Enhanced pagination functionality
-        function goToPage(pageNumber) {
-            // In a real application, this would fetch data for the specific page
-            console.log(`Navigating to page ${pageNumber}`);
-            
-            // Update active page button
-            document.querySelectorAll('.page-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
-        }
-
-        // Add click handlers to pagination buttons
-        document.addEventListener('DOMContentLoaded', function() {
-            const pageBtns = document.querySelectorAll('.page-btn');
-            pageBtns.forEach(btn => {
-                if (btn.textContent !== 'Previous' && btn.textContent !== 'Next') {
-                    btn.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        goToPage(this.textContent);
-                    });
-                }
-            });
-        });
-
-        // Set current date as default for date filters
-        document.addEventListener('DOMContentLoaded', function() {
-            const today = new Date().toISOString().split('T')[0];
-            document.getElementById('toDate').value = today;
-            
-            // Set from date to 30 days ago
-            const thirtyDaysAgo = new Date();
-            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-            document.getElementById('fromDate').value = thirtyDaysAgo.toISOString().split('T')[0];
-            
-            // Initial filter to show current data
-            filterClients();
-        });
 
         // Export filtered data function
         function exportFilteredData() {
-            const visibleRows = Array.from(document.querySelectorAll('#clientsTableBody tr')).filter(row => 
-                row.style.display !== 'none' && !row.id
-            );
+            // Get current URL parameters to maintain filters
+            const urlParams = new URLSearchParams(window.location.search);
+            const exportUrl = 'export_clients.php?' + urlParams.toString();
             
-            if (visibleRows.length === 0) {
-                alert('No data to export');
-                return;
-            }
-
-            let csvContent = "data:text/csv;charset=utf-8,";
-            csvContent += "Client Name,Email,Phone,Address,Sales Person,Status,Date\n";
-            
-            visibleRows.forEach(row => {
-                const name = row.querySelector('.client-details h4').textContent;
-                const email = row.querySelector('.client-details p').textContent;
-                const phone = row.cells[1].querySelector('p:last-child').textContent.replace('📞 ', '');
-                const address = row.cells[2].querySelector('p:first-child').textContent;
-                const salesPerson = row.cells[3].textContent;
-                const status = row.querySelector('.status-badge').textContent;
-                const date = row.cells[5].textContent;
-                
-                csvContent += `"${name}","${email}","${phone}","${address}","${salesPerson}","${status}","${date}"\n`;
-            });
-            
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", "filtered_clients.csv");
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            // Open export in new window
+            window.open(exportUrl, '_blank');
         }
 
         // Add export button to filters section
         document.addEventListener('DOMContentLoaded', function() {
-            const filtersSection = document.querySelector('.filters-section');
+            const filtersRow = document.querySelector('.filters-row');
             const exportBtn = document.createElement('button');
+            exportBtn.type = 'button';
             exportBtn.className = 'search-btn';
             exportBtn.style.background = '#6c757d';
             exportBtn.innerHTML = '<i class="fas fa-download"></i> Export CSV';
             exportBtn.onclick = exportFilteredData;
             
-            // Insert export button after search button
-            const searchBtn = document.querySelector('.search-btn');
-            searchBtn.parentNode.insertBefore(exportBtn, searchBtn.nextSibling);
+            // Add export button to the filters row
+            filtersRow.appendChild(exportBtn);
+        });
+
+        // Auto-submit form on filter change (optional - for better UX)
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.querySelector('form');
+            const inputs = form.querySelectorAll('input, select');
+            
+            // Add event listeners for auto-submit (uncomment if desired)
+            /*
+            inputs.forEach(input => {
+                if (input.type === 'date' || input.tagName === 'SELECT') {
+                    input.addEventListener('change', function() {
+                        form.submit();
+                    });
+                }
+                
+                if (input.type === 'text') {
+                    let timeout;
+                    input.addEventListener('input', function() {
+                        clearTimeout(timeout);
+                        timeout = setTimeout(() => {
+                            form.submit();
+                        }, 1000); // Wait 1 second after user stops typing
+                    });
+                }
+            });
+            */
         });
     </script>
 </body>
